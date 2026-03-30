@@ -1,0 +1,36 @@
+recipe_version: "1"
+name: Mistral-Small-4-119B-2603-NVFP4
+description: vLLM serving mistralai/Mistral-Small-4-119B-2603-NVFP4 with Mistral guidance/tool-calling mod
+
+model: mistralai/Mistral-Small-4-119B-2603-NVFP4
+container: vllm-node
+cluster_only: false
+solo_only: false
+
+mods:
+  - mods/fix-mistral4-guidance-37081
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 2
+  gpu_memory_utilization: 0.7
+  max_model_len: 32768
+  max_num_seqs: 16
+
+command: |
+  vllm serve mistralai/Mistral-Small-4-119B-2603-NVFP4 \
+      --host {host} \
+      --port {port} \
+      --tensor-parallel-size {tensor_parallel} \
+      --distributed-executor-backend ray \
+      --gpu-memory-utilization {gpu_memory_utilization} \
+      --max-model-len {max_model_len} \
+      --max-num-seqs {max_num_seqs} \
+      --load-format fastsafetensors \
+      --kv-cache-dtype fp8 \
+      --enable-prefix-caching \
+      --trust-remote-code \
+      --enable-auto-tool-choice \
+      --tool-call-parser mistral \
+      --reasoning-parser mistral
