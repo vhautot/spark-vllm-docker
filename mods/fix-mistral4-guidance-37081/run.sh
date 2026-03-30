@@ -126,6 +126,13 @@ if [ "$FALLBACK_REPLACE" != "1" ]; then
     exit 1
 fi
 
+if [ ! -f "$SITE_PACKAGES/vllm/inputs/data.py" ]; then
+    echo "[fix-mistral4-guidance-37081] Error: fallback replace is unsafe on this vLLM build."
+    echo "[fix-mistral4-guidance-37081] Missing expected module: vllm/inputs/data.py"
+    echo "[fix-mistral4-guidance-37081] Rebuild image with --apply-vllm-pr 37081 (or newer compatible vLLM ref)."
+    exit 1
+fi
+
 echo "[fix-mistral4-guidance-37081] Patch did not apply cleanly. Trying fallback file replace..."
 python3 - "$PR_FILES_API" "$SITE_PACKAGES" "$BACKUP_DIR" <<'PY'
 import json

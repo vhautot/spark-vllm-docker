@@ -11,6 +11,8 @@ that improve Mistral tool-calling and reasoning handling with guidance/lark stru
   `/usr/local/lib/python3.12/dist-packages`.
 - If patching fails because of version drift, falls back to replacing only the
   targeted runtime files from PR `#37081`.
+- Fallback replacement is guarded and only allowed on compatible vLLM layouts.
+  Otherwise the mod exits with an explicit rebuild hint.
 
 The script is idempotent and skips when the patch appears already applied.
 
