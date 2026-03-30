@@ -7,10 +7,18 @@ that improve Mistral tool-calling and reasoning handling with guidance/lark stru
 
 - Downloads PR `#37081` diff at runtime.
 - Keeps only the targeted runtime files under `vllm/`.
-- Applies the filtered patch to the installed package in:
+- Tries to apply the filtered patch to the installed package in:
   `/usr/local/lib/python3.12/dist-packages`.
+- If patching fails because of version drift, falls back to replacing only the
+  targeted runtime files from PR `#37081`.
 
 The script is idempotent and skips when the patch appears already applied.
+
+Fallback can be disabled with:
+
+```bash
+-e MISTRAL4_MOD_FALLBACK_REPLACE=0
+```
 
 ## Usage
 

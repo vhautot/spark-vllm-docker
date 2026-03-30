@@ -3,8 +3,10 @@ set -euo pipefail
 
 SITE_PACKAGES="/usr/local/lib/python3.12/dist-packages"
 PR_URL="https://patch-diff.githubusercontent.com/raw/vllm-project/vllm/pull/37081.diff"
+PR_FILES_API="https://api.github.com/repos/vllm-project/vllm/pulls/37081/files?per_page=100"
 MARKER_FILE="$SITE_PACKAGES/vllm/tool_parsers/mistral_tool_parser.py"
 MARKER_STRING="def should_apply_mistral_grammar("
+FALLBACK_REPLACE="${MISTRAL4_MOD_FALLBACK_REPLACE:-1}"
 
 echo "[fix-mistral4-guidance-37081] Starting..."
 
@@ -20,9 +22,11 @@ fi
 
 TMP_DIFF="/tmp/pr37081.diff"
 FILTERED_DIFF="/tmp/pr37081.runtime.diff"
+BACKUP_DIR="/tmp/pr37081.runtime.backup"
 
 cleanup() {
     rm -f "$TMP_DIFF" "$FILTERED_DIFF"
+    rm -rf "$BACKUP_DIR"
 }
 trap cleanup EXIT
 
@@ -113,6 +117,86 @@ fi
 
 if patch --reverse --batch --dry-run -p1 -d "$SITE_PACKAGES" < "$FILTERED_DIFF" >/dev/null 2>&1; then
     echo "[fix-mistral4-guidance-37081] Patch already applied (reverse check)."
+    exit 0
+fi
+
+if [ "$FALLBACK_REPLACE" != "1" ]; then
+    echo "[fix-mistral4-guidance-37081] Error: patch does not apply cleanly and fallback replace is disabled."
+    echo "[fix-mistral4-guidance-37081] Set MISTRAL4_MOD_FALLBACK_REPLACE=1 to enable fallback."
+    exit 1
+fi
+
+echo "[fix-mistral4-guidance-37081] Patch did not apply cleanly. Trying fallback file replace..."
+python3 - "$PR_FILES_API" "$SITE_PACKAGES" "$BACKUP_DIR" <<'PY'
+import json
+import os
+import shutil
+import sys
+import urllib.request
+
+api_url = sys.argv[1]
+site_packages = sys.argv[2]
+backup_dir = sys.argv[3]
+
+allowed = {
+    "vllm/entrypoints/openai/chat_completion/serving.py",
+    "vllm/entrypoints/openai/engine/serving.py",
+    "vllm/entrypoints/serve/render/serving.py",
+    "vllm/sampling_params.py",
+    "vllm/tokenizers/mistral.py",
+    "vllm/tool_parsers/mistral_tool_parser.py",
+    "vllm/v1/structured_output/backend_guidance.py",
+    "vllm/v1/structured_output/backend_types.py",
+    "vllm/v1/structured_output/backend_xgrammar.py",
+}
+
+req = urllib.request.Request(
+    api_url,
+    headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "spark-vllm-docker-mod-fix-mistral4-guidance-37081",
+    },
+)
+with urllib.request.urlopen(req, timeout=30) as resp:
+    files = json.loads(resp.read().decode("utf-8"))
+
+selected = []
+for entry in files:
+    name = entry.get("filename")
+    raw_url = entry.get("raw_url")
+    if name in allowed and raw_url:
+        selected.append((name, raw_url))
+
+if len(selected) != len(allowed):
+    found = {name for name, _ in selected}
+    missing = sorted(allowed - found)
+    raise RuntimeError(f"Missing expected files from PR API: {missing}")
+
+os.makedirs(backup_dir, exist_ok=True)
+
+written = []
+try:
+    for name, raw_url in selected:
+        dst = os.path.join(site_packages, name)
+        bkp = os.path.join(backup_dir, name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        os.makedirs(os.path.dirname(bkp), exist_ok=True)
+        if os.path.exists(dst):
+            shutil.copy2(dst, bkp)
+        with urllib.request.urlopen(raw_url, timeout=30) as resp:
+            content = resp.read()
+        with open(dst, "wb") as f:
+            f.write(content)
+        written.append((dst, bkp if os.path.exists(bkp) else None))
+except Exception:
+    for dst, bkp in reversed(written):
+        if bkp and os.path.exists(bkp):
+            shutil.copy2(bkp, dst)
+    raise
+PY
+
+if [ -f "$MARKER_FILE" ] && grep -q "$MARKER_STRING" "$MARKER_FILE"; then
+    echo "[fix-mistral4-guidance-37081] Fallback replace applied successfully."
     exit 0
 fi
 
